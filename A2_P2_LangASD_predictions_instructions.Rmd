@@ -46,8 +46,7 @@ How did your models from last time perform? In this exercise you have to compare
 
 
 ```{r, include = FALSE}
-
-pacman::p_load(readr,dplyr,stringr,lmerTest,Metrics,caret)
+pacman::p_load(readr,dplyr,stringr,lmerTest,Metrics,caret, lme4)
 
 ## Clean up function, included to inspire you
 
@@ -97,24 +96,71 @@ CleanUpData <- function(Demo,LU,Word){
 
   return(Data)
 }
+```
 
+
+```{r, include = FALSE}
 # Load training Data
+df <- read_csv("df_portfolio1.csv")
 
+#remove NA's
+train_sub_simple <- df %>%  select("SUBJ","VISIT","Diagnosis","MOT_MLU","CHI_MLU")
+train_sub_complex <- df %>%  select("SUBJ","VISIT","Diagnosis","MOT_MLU","CHI_MLU","sev_aut_sympt","social_int_skills")
+
+train_sub_simple <- train_sub_simple[complete.cases(train_sub_simple), ]
+train_sub_complex <- train_sub_complex[complete.cases(train_sub_complex), ]
 
 #- recreate the models you chose last time (just write the code again and apply it to Train Data)
+chi_simple_train <- lmerTest::lmer(CHI_MLU ~ VISIT * Diagnosis + I(VISIT^2) + (1| SUBJ), data = train_sub_simple, REML = F)
 
+chi_complex_train <- lmerTest::lmer(CHI_MLU ~ VISIT * sev_aut_sympt + social_int_skills + (1|SUBJ), data = train_sub_complex, REML = F)
 
 #- calculate performance of the model on the training data: root mean square error is a good measure. (Tip: google the function rmse())
-
-
+rmse(train_sub_simple$CHI_MLU, predict(chi_simple_train)) #0.394
+rmse(train_sub_complex$CHI_MLU, predict(chi_complex_train)) #0.336
 
 #- create the test dataset (apply the code from assignment 1 or my function to clean up the 3 test datasets)
 # Test data
+demo_test <- read_csv("demo_test.csv")
+LU_test <- read_csv("LU_test.csv")
+token_test <- read_csv("token_test.csv")
 
+  #run Buyrakn's cleanup function
+test <- CleanUpData(demo_test,LU_test,token_test)
+
+test_sub_complex <- test %>%  select("Child.ID", "Visit", "Diagnosis", "ADOS", "Socialization", "MOT_MLU", "CHI_MLU")
+test_sub_simple <- test %>%  select("Child.ID", "Visit", "Diagnosis", "MOT_MLU", "CHI_MLU")
+
+  #renaming variables
+test_sub_simple <- rename(test_sub_simple, VISIT = Visit)
+test_sub_simple <- rename(test_sub_simple, SUBJ = Child.ID)
+
+test_sub_complex <- rename(test_sub_complex, social_int_skills = Socialization)
+test_sub_complex <- rename(test_sub_complex, sev_aut_sympt = ADOS)
+test_sub_complex <- rename(test_sub_complex, VISIT = Visit)
+test_sub_complex <- rename(test_sub_complex, SUBJ = Child.ID)
+
+#removing NA's
+test_sub_complex <- test_sub_complex[complete.cases(test_sub_complex), ]
+test_sub_simple <- test_sub_simple[complete.cases(test_sub_simple), ]
 #- test the performance of the models on the test data (Tips: google the functions "predict()")
 
+chi_simple_test <- lmerTest::lmer(CHI_MLU ~ VISIT * Diagnosis + I(VISIT^2) + (1| SUBJ), data = test_sub_simple, REML = F)
+
+chi_complex_test <- lmerTest::lmer(CHI_MLU ~ VISIT * sev_aut_sympt + social_int_skills + (1|SUBJ), data = test_sub_complex, REML = F)
+
+
+rmse(test_sub_simple$CHI_MLU, predict(chi_simple_test)) #0.330
+rmse(test_sub_complex$CHI_MLU, predict(chi_complex_test)) #0.233
 
 #- optional: predictions are never certain, can you identify the uncertainty of the predictions? (e.g. google predictinterval())
+pacman::p_load(merTools)
+
+predictInterval(chi_complex_train)
+predictInterval(chi_simple_train)
+
+predictInterval(chi_complex_test)
+predictInterval(chi_simple_test)
 
 ```
 
@@ -137,12 +183,37 @@ In this exercise you have to use cross-validation to calculate the predictive er
 
 
 ```{r}
-#- Create the basic model of ChildMLU as a function of Time and Diagnosis (don't forget the random effects!).
+#- Create the basic model of ChildMLU as a function of Time and Diagnosis (don't forget the random effects!). 
+BM_train <- lmerTest::lmer(CHI_MLU ~ VISIT * Diagnosis + (1 + VISIT | SUBJ), data = train_sub_simple, REML = F)
+
+BM_test <- lmerTest::lmer(CHI_MLU ~ VISIT * Diagnosis + (1 + VISIT | SUBJ), data = test_sub_simple, REML = F)
 
 #- Make a cross-validated version of the model. (Tips: google the function "createFolds";  loop through each fold, train a model on the other folds and test it on the fold)
+k = 6
+folds = createFolds(unique(train_sub_simple$SUBJ, k = k, list = TRUE, returnTrain = FALSE))
+trainRMSE = rep(NA, k)
+testRMSE = rep(NA, k)
+i = 1
 
-#- Report the results and comment on them. 
+for (fold in folds){
+  train = subset(train_sub_simple, !(SUBJ %in% fold))
+  test = subset(train_sub_simple, SUBJ %in% fold)
+  model = lmerTest::lmer(CHI_MLU ~ VISIT * Diagnosis + (1 + VISIT | SUBJ), data = train, REML = F)
+  
+  test$prediction = predict(model, test, allow.new.levels = TRUE)
+  train$prediction = fitted(model)
+  trainRMSE[i] = rmse(train$CHI_MLU, fitted(model))
+  testRMSE[i] = rmse(test$CHI_MLU, test$prediction)
+  i = 0 + 1
+}
 
+trainRMSE
+testRMSE
+#- Report the results and comment on them.
+```
+
+
+```{r}
 #- Now try to find the best possible predictive model of ChildMLU, that is, the one that produces the best cross-validated results.
 
 # Bonus Question 1: What is the effect of changing the number of folds? Can you plot RMSE as a function of number of folds?
