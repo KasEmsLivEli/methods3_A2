@@ -1,0 +1,201 @@
+---
+title: "Portfolio2 part 3"
+author: "Liv, Kasper, Elisabet & Emma-Louise"
+date: "30.09.20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(readr, dplyr,stringr,lmerTest,Metrics,caret, tidyverse, simr, lme4, graphics)
+```
+
+## Welcome to the third exciting part of the Language Development in ASD exercise
+
+In this part of the assignment, we try to figure out how a new study should be planned (i.e. how many participants?) in order to have enough power to replicate the findings (ensuring our sample size is adequate, our alpha at 0.05 and our beta at 0.8):
+1- if we trust the estimates of the current study. Report the power analysis and comment on what you can (or cannot) use its estimates for.
+2- if we are skeptical of the current study. Report the power analysis and comment on what you can (or cannot) use its estimates for.
+3- if we only have access to 30 participants. Identify the power for each relevant effect and discuss whether it's worth to run the study and why
+The list above is also what you should discuss in your code-less report.
+
+
+## Learning objectives
+
+- Learn how to calculate statistical power
+- Critically appraise how to apply frequentist statistical power
+
+### Exercise 1
+
+How much power does your study have (if your model estimates are quite right)?
+- Load your dataset (both training and testing), fit your favorite model, assess power for your effects of interest (probably your interactions).
+- Report the power analysis and comment on what you can (or cannot) use its estimates for.
+- Test how many participants you would have to have to replicate the findings (assuming the findings are correct)
+
+N.B. Remember that main effects are tricky once you have interactions in the model (same for 2-way interactions w 3-way interactions in the model). If you want to test the power of main effects, run a model excluding the interactions.
+N.B. Check this paper: https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.12504
+You will be using:
+- powerSim() to calculate power
+- powerCurve() to estimate the needed number of participants
+- extend() to simulate more participants
+
+```{r}
+testdf <- read_csv("testset.csv")
+
+traindf <- read_csv("trainset.csv")
+
+
+# We choose the simple model even though it is not the best because its predictors have less NAs in the data set
+simple <- lme4::lmer(CHI_MLU ~ VISIT * Diagnosis + I(VISIT^2) + (1| SUBJ), data = traindf, REML = FALSE)
+
+#Making a new model without interaction effect, in order to test the power of the main effects
+simple_noint <- lme4::lmer(CHI_MLU ~ VISIT + Diagnosis + I(VISIT^2) + (1| SUBJ), data = traindf, REML = FALSE)
+
+
+#Assessing power for our effects
+
+powerinteraction <- simr::powerSim(simple, fixed("VISIT:Diagnosis"), nsim=50) #100%
+
+powervisit <- simr::powerSim(simple_noint, fixed("VISIT"), nsim=50) # 100%
+
+powerdiagnosis <- simr::powerSim(simple_noint, fixed("Diagnosis"), nsim=50) #96%
+
+powerfancy <- simr::powerSim(simple_noint, fixed("I(VISIT^2)"), nsim=50) #100%
+
+powerrandom <-  simr::powerSim(simple_noint, fixed("(1| SUBJ)"), nsim=50) #0%
+
+
+traindf$SUBJ <- as.factor(traindf$SUBJ)
+traindf$SUBJ <- as.numeric(traindf$SUBJ)
+
+#testing how many participants we would need to replicate the findings 
+pcurve <-  simr::powerCurve(simple, simr::fixed("VISIT:DiagnosisTD", method="t"), along = "SUBJ", nsim = 50)
+plot(pcurve)
+
+print(pcurve)
+
+
+```
+
+
+### Exercise 2
+
+How would you perform a more conservative power analysis?
+- Identify and justify a minimum effect size for each of your relevant effects
+- take the model from exercise 1 and replace the effects with the minimum effect size that you'd accept.
+
+- assess the power curve by Child.ID, identifying an ideal number of participants to estimate each effect
+- if your power estimates do not reach an acceptable threshold simulate additional participants and repeat the previous analysis
+- Report the power analysis and comment on what you can (or cannot) use its estimates for.
+
+```{r}
+#model from exercise 1 
+simple2 <- lme4::lmer(CHI_MLU ~ VISIT * Diagnosis + I(VISIT^2) + (1| SUBJ), data = traindf, REML = F)
+noint2 <- lme4::lmer(CHI_MLU ~ VISIT + Diagnosis + I(VISIT^2) + (1| SUBJ), data = traindf, REML = FALSE)
+
+#specifying the effect size -- identify and justify
+fixef(simple2)["VISIT:DiagnosisTD"] #0.249
+fixef(noint2)["I(VISIT^2)"]# -0.04
+fixef(noint2)["VISIT"] #0.558
+fixef(noint2)["DiagnosisTD"] #-0.648
+fixef(noint2)["(1| SUBJ)"] #NA
+
+# Assigning more conservative effect sizes to the different predictors
+
+fixef(simple2)["VISIT:DiagnosisTD"] <- 0.2
+fixef(noint2)["I(VISIT^2)"] <- -0.01
+fixef(noint2)["VISIT"] <- 0.4
+fixef(noint2)["DiagnosisTD"] <- 0.5
+
+
+#Power with conservative effect sizes
+powerinteraction2 <- simr::powerSim(simple2, fixed("VISIT:Diagnosis"), nsim=50) #100%
+print(powerinteraction2)
+
+powervisit2 <- simr::powerSim(noint2, fixed("VISIT"), nsim=50) # 100%
+print(powervisit2)
+
+powerdiagnosis2 <- simr::powerSim(noint2, fixed("Diagnosis"), nsim=50) #82%
+print(powerdiagnosis2)
+
+powerfancy2 <- simr::powerSim(noint2, fixed("I(VISIT^2)"), nsim=50) #12%
+print(powerfancy2)
+
+
+
+
+#check powercurve to see ideal number of participants
+pcurve2 <-  simr::powerCurve(simple2, simr::fixed("VISIT:DiagnosisTD", method="t"), along = "SUBJ", nsim = 50)
+plot(pcurve2)
+print(pcurve2) # Reaches over 90% power at 16 participants
+
+powGrowth <- simr::powerCurve(noint2, simr::fixed("I(VISIT^2)", method="t"), along = "SUBJ", nsim = 50)
+plot(powGrowth)
+print(powGrowth)  ### Does not reach 80% threshold
+
+powVis <- simr::powerCurve(noint2, simr::fixed("VISIT", method="t"), along = "SUBJ", nsim = 50)
+plot(powVis)
+print(powVis) # reaches over 80% at 16 participants
+
+powDia <- simr::powerCurve(noint2, simr::fixed("DiagnosisTD", method="t"), along = "SUBJ", nsim = 50)
+plot(powDia)
+print(powDia)  # reaches 86% at 55 participants
+
+
+#powGrowth does not reach the accepted threshold threshold, and powDia reaches it at a much higher participant number than the other effects
+
+#if your power estimates do not reach an acceptable threshold simulate additional participants and repeat the previous analysis
+#simulate more participants
+ext <- extend(noint2, along = "SUBJ", n = 70)
+
+
+powergrowthvisit <- simr::powerSim(ext, nsim = 50, fixed("I(VISIT^2)")) #24%
+powergrowthvisit
+
+powerdiagnosisext <- simr::powerSim(ext,nsim = 50, fixed("Diagnosis")) # 88%
+powerdiagnosisext
+
+
+#Extending the model in order to reach the accepted threshold for the growth predictor
+ext_model_no_int <- extend(noint2, along = "SUBJ", n = 1000)
+powGrowth_ext <- simr::powerCurve(ext_model_no_int, simr::fixed("I(VISIT^2)", method="t"), along = "SUBJ", nsim = 50)
+plot(powGrowth_ext)
+print(powGrowth_ext)
+
+
+```
+
+
+
+
+### Exercise 3
+
+Assume you have only the resources to collect 30 kids (15 with ASD and 15 TDs). Identify the power for each relevant effect and discuss whether it's worth to run the study and why
+
+```{r}
+
+#Creating a subset with 15 subjects from each diagnosis
+#Subsetting all TD's and all ASD's
+subset_ASD <- subset(traindf, Diagnosis=="TD")
+subset_TD <- subset(traindf, Diagnosis=="ASD")
+
+#Subsetting 15 TD's and 15 ASD's
+subsubset_ASD <- subset(subset_ASD[1:88, ])
+subsubset_TD <- subset(subset_TD[1:86, ])
+
+#Combining the subsets of 15 with each diagnosis
+df30 <- rbind(subsubset_ASD, subsubset_TD)
+
+#create the model with 30 participants for interactions
+simple3 <- lme4::lmer(CHI_MLU ~ VISIT * Diagnosis + I(VISIT^2) + (1| SUBJ), data = df30, REML = F)
+summary(simple3)
+
+#check the power
+powerinteraction_3 <- simr::powerSim(simple3, nsim = 50, fixed("VISIT:Diagnosis"))
+powerinteraction_3  # 100 %
+
+#Power curve
+curve_ex3 <- simr::powerCurve(simple3, simr::fixed("VISIT:DiagnosisTD", method="t"), along = "SUBJ", nsim = 50)
+plot(curve_ex3)
+print(curve_ex3)
+
+```
